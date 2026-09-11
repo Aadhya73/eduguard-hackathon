@@ -463,7 +463,7 @@ export default function Home() {
     setIsSubmitting(false);
   }
 
-  async function addNewStudent() {
+  const addNewStudent = async () => {
     // 1. Form Validation
     if (!newStudentId.trim()) {
       setDatabaseMessage("Could not save student: Student ID cannot be empty.");
@@ -484,10 +484,11 @@ export default function Home() {
     }
 
     setIsSubmitting(true);
-    setDatabaseMessage(null);
+    setDatabaseMessage("");
 
     try {
       const supabase = createClient();
+
       const { data, error } = await supabase
         .from("students")
         .insert({
@@ -503,6 +504,12 @@ export default function Home() {
       if (error) {
         console.error("Add student error:", error);
         setDatabaseMessage(`Could not save student: ${error.message}`);
+        setIsSubmitting(false);
+        return;
+      }
+
+      if (!data) {
+        setDatabaseMessage("Could not save student: Student was not returned by Supabase.");
         setIsSubmitting(false);
         return;
       }
@@ -525,19 +532,28 @@ export default function Home() {
         console.warn("Could not save signals to localStorage:", e);
       }
 
-      // Success: reload students from Supabase as the source of truth
+      // Reload students from Supabase
       await loadStudents();
 
-      setIsSubmitting(false);
+      // Close modal
       setShowAddStudentModal(false);
-      resetAddStudentForm();
+
+      // Clear form
+      setNewStudentId("");
+      setNewStudentName("");
+      setNewStudentEmail("");
+      setNewStudentCourse("");
+      setNewStudentSemester("6");
+      setDatabaseMessage("");
+
+      setIsSubmitting(false);
       setActiveTab("Students");
     } catch (err: any) {
       console.error("Add student error:", err);
       setDatabaseMessage(`Could not save student: ${err.message || "An unexpected error occurred"}`);
       setIsSubmitting(false);
     }
-  }
+  };
 
   return (
     <main className="min-h-screen bg-[#faf8fc] text-[#302a3a]">
