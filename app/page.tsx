@@ -177,10 +177,25 @@ export default function Home() {
   const [selectedIntervention, setSelectedIntervention] = useState<Intervention | null>(null);
 
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showAddStudentModal, setShowAddStudentModal] = useState(false);
+
   const [interventionStudent, setInterventionStudent] = useState<Student | null>(null);
   const [interventionType, setInterventionType] = useState("Mentor Meeting");
   const [interventionOwner, setInterventionOwner] = useState("Dr. Meera Gupta");
   const [interventionNotes, setInterventionNotes] = useState("");
+
+  // Add Student Form State & Database Message
+  const [newStudentId, setNewStudentId] = useState("");
+  const [newStudentName, setNewStudentName] = useState("");
+  const [newStudentEmail, setNewStudentEmail] = useState("");
+  const [newStudentCourse, setNewStudentCourse] = useState("");
+  const [newStudentSemester, setNewStudentSemester] = useState("6");
+  const [newAttendance, setNewAttendance] = useState(85);
+  const [newAcademic, setNewAcademic] = useState(80);
+  const [newSubmission, setNewSubmission] = useState(80);
+  const [newEngagement, setNewEngagement] = useState(80);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [databaseMessage, setDatabaseMessage] = useState<string | null>(null);
 
   // Fetch students from Supabase
   const loadStudents = useCallback(async () => {
@@ -191,6 +206,7 @@ export default function Home() {
       const { data, error } = await supabase
         .from("students")
         .select("id, student_id, name, email, course, semester")
+        .not("student_id", "ilike", "TEST_%")
         .order("id", { ascending: true });
 
       if (error) {
@@ -224,10 +240,29 @@ export default function Home() {
             sub = 95;
             eng = 90;
           } else {
-            att = 85;
-            acad = 82;
-            sub = 85;
-            eng = 80;
+            // Check if custom signals were saved in localStorage
+            try {
+              if (typeof window !== "undefined") {
+                const stored = localStorage.getItem(`student_signals_${dbStudent.student_id}`);
+                if (stored) {
+                  const parsed = JSON.parse(stored);
+                  if (parsed.attendance !== undefined) att = parsed.attendance;
+                  if (parsed.academic !== undefined) acad = parsed.academic;
+                  if (parsed.submission !== undefined) sub = parsed.submission;
+                  if (parsed.engagement !== undefined) eng = parsed.engagement;
+                } else {
+                  att = 85;
+                  acad = 82;
+                  sub = 85;
+                  eng = 80;
+                }
+              }
+            } catch {
+              att = 85;
+              acad = 82;
+              sub = 85;
+              eng = 80;
+            }
           }
 
           const riskCalc = calculateRisk(att, acad, sub, eng);
@@ -415,6 +450,111 @@ export default function Home() {
     );
   }
 
+  function resetAddStudentForm() {
+    setNewStudentId("");
+    setNewStudentName("");
+    setNewStudentEmail("");
+    setNewStudentCourse("");
+    setNewStudentSemester("6");
+    setNewAttendance(85);
+    setNewAcademic(80);
+    setNewSubmission(80);
+    setNewEngagement(80);
+    setDatabaseMessage(null);
+    setIsSubmitting(false);
+  }
+
+  const addNewStudent = async () => {
+    // 1. Form Validation
+    if (!newStudentId.trim()) {
+      setDatabaseMessage("Could not save student: Student ID cannot be empty.");
+      return;
+    }
+    if (!newStudentName.trim()) {
+      setDatabaseMessage("Could not save student: Name cannot be empty.");
+      return;
+    }
+    if (!newStudentCourse.trim()) {
+      setDatabaseMessage("Could not save student: Course cannot be empty.");
+      return;
+    }
+    const parsedSemester = Number(newStudentSemester);
+    if (!newStudentSemester || isNaN(parsedSemester) || parsedSemester <= 0) {
+      setDatabaseMessage("Could not save student: Semester must be a valid number.");
+      return;
+    }
+
+    setIsSubmitting(true);
+    setDatabaseMessage(null);
+
+    try {
+      const supabase = createClient();
+
+      const { data, error } = await supabase
+        .from("students")
+        .insert({
+          student_id: newStudentId.trim(),
+          name: newStudentName.trim(),
+          email: newStudentEmail.trim() || null,
+          course: newStudentCourse.trim(),
+          semester: parsedSemester,
+        })
+        .select("id, student_id, name, email, course, semester")
+        .single();
+
+      if (error) {
+        console.error("Add student error:", error);
+        if (
+          error.code === "23505" ||
+          error.message.includes("unique constraint") ||
+          error.message.includes("duplicate key")
+        ) {
+          setDatabaseMessage("Could not save student: Student ID already exists. Please choose a different Student ID.");
+        } else {
+          setDatabaseMessage(`Could not save student: ${error.message}`);
+        }
+        setIsSubmitting(false);
+        return;
+      }
+
+      if (!data) {
+        setDatabaseMessage("Could not save student: Student was not returned by Supabase.");
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Save signals for this student
+      try {
+        if (typeof window !== "undefined") {
+          const signalsData = {
+            attendance: newAttendance,
+            academic: newAcademic,
+            submission: newSubmission,
+            engagement: newEngagement,
+          };
+          localStorage.setItem(
+            `student_signals_${data.student_id}`,
+            JSON.stringify(signalsData)
+          );
+        }
+      } catch (e) {
+        console.warn("Could not save signals to localStorage:", e);
+      }
+
+      // Reload students from Supabase as source of truth
+      await loadStudents();
+
+      // Close modal and clear form
+      setShowAddStudentModal(false);
+      resetAddStudentForm();
+      setActiveTab("Students");
+    } catch (err: any) {
+      console.error("Add student error:", err);
+      setDatabaseMessage(`Could not save student: ${err.message || "An unexpected error occurred"}`);
+      setIsSubmitting(false);
+    }
+  };
+
   return (
     <main className="min-h-screen bg-[#faf8fc] text-[#302a3a]">
       <header className="border-b border-[#e6dfeb] bg-white">
@@ -509,6 +649,7 @@ export default function Home() {
             onSelectStudent={setSelectedStudent}
             onCreateIntervention={openCreateIntervention}
             onViewInterventions={() => setActiveTab("Interventions")}
+            onAddStudent={() => setShowAddStudentModal(true)}
           />
         )}
 
@@ -520,6 +661,7 @@ export default function Home() {
             riskFilter={riskFilter}
             setRiskFilter={setRiskFilter}
             onSelectStudent={setSelectedStudent}
+            onAddStudent={() => setShowAddStudentModal(true)}
           />
         )}
 
@@ -553,6 +695,36 @@ export default function Home() {
           student={selectedStudent}
           onClose={() => setSelectedStudent(null)}
           onCreateIntervention={() => openCreateIntervention(selectedStudent)}
+        />
+      )}
+
+      {showAddStudentModal && (
+        <AddStudentModal
+          studentId={newStudentId}
+          setStudentId={setNewStudentId}
+          name={newStudentName}
+          setName={setNewStudentName}
+          email={newStudentEmail}
+          setEmail={setNewStudentEmail}
+          course={newStudentCourse}
+          setCourse={setNewStudentCourse}
+          semester={newStudentSemester}
+          setSemester={setNewStudentSemester}
+          attendance={newAttendance}
+          setAttendance={setNewAttendance}
+          academic={newAcademic}
+          setAcademic={setNewAcademic}
+          submission={newSubmission}
+          setSubmission={setNewSubmission}
+          engagement={newEngagement}
+          setEngagement={setNewEngagement}
+          isSubmitting={isSubmitting}
+          databaseMessage={databaseMessage}
+          onClose={() => {
+            setShowAddStudentModal(false);
+            resetAddStudentForm();
+          }}
+          onAdd={addNewStudent}
         />
       )}
 
@@ -590,6 +762,7 @@ function DashboardView({
   onSelectStudent,
   onCreateIntervention,
   onViewInterventions,
+  onAddStudent,
 }: {
   stats: {
     total: number;
@@ -604,6 +777,7 @@ function DashboardView({
   onSelectStudent: (student: Student) => void;
   onCreateIntervention: (student: Student) => void;
   onViewInterventions: () => void;
+  onAddStudent: () => void;
 }) {
   const highRiskStudents = students.filter(
     (student) => student.risk === "High"
@@ -611,19 +785,29 @@ function DashboardView({
 
   return (
     <>
-      <div className="mb-8">
-        <p className="mb-2 text-sm font-semibold uppercase tracking-[0.18em] text-[#8b78c9]">
-          Mentor Dashboard
-        </p>
+      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="mb-2 text-sm font-semibold uppercase tracking-[0.18em] text-[#8b78c9]">
+            Mentor Dashboard
+          </p>
 
-        <h2 className="font-serif text-4xl">
-          Early support, not late intervention.
-        </h2>
+          <h2 className="font-serif text-4xl">
+            Early support, not late intervention.
+          </h2>
 
-        <p className="mt-2 max-w-3xl text-[#756d7d]">
-          EduGuard combines real-time Supabase data with an explainable Demo Risk Model to
-          identify early dropout signals and guide timely interventions.
-        </p>
+          <p className="mt-2 max-w-3xl text-[#756d7d]">
+            EduGuard combines real-time Supabase data with an explainable Demo Risk Model to
+            identify early dropout signals and guide timely interventions.
+          </p>
+        </div>
+
+        <button
+          onClick={onAddStudent}
+          className="flex items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-[#8b78c9] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#6f5bad] hover:-translate-y-0.5"
+        >
+          <span className="text-lg font-bold">+</span>
+          Add New Student
+        </button>
       </div>
 
       <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
@@ -823,6 +1007,7 @@ function StudentsView({
   riskFilter,
   setRiskFilter,
   onSelectStudent,
+  onAddStudent,
 }: {
   students: Student[];
   search: string;
@@ -830,6 +1015,7 @@ function StudentsView({
   riskFilter: "All" | RiskLevel;
   setRiskFilter: (value: "All" | RiskLevel) => void;
   onSelectStudent: (student: Student) => void;
+  onAddStudent: () => void;
 }) {
   return (
     <>
@@ -847,6 +1033,14 @@ function StudentsView({
             Connected directly to Supabase with real-time explainable risk scoring.
           </p>
         </div>
+
+        <button
+          onClick={onAddStudent}
+          className="flex items-center justify-center gap-2 rounded-xl bg-[#8b78c9] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#6f5bad] hover:-translate-y-0.5"
+        >
+          <span className="text-lg font-bold">+</span>
+          Add New Student
+        </button>
       </div>
 
       <section className="overflow-hidden rounded-2xl border border-[#e6dfeb] bg-white shadow-[0_4px_20px_rgba(80,60,100,0.05)]">
@@ -1574,6 +1768,318 @@ function StudentDetail({
         <div className="border-t border-[#e6dfeb] bg-[#fcfaff] px-6 py-4 text-xs text-[#756d7d] sm:px-8">
           EduGuard is an assistive decision-support tool. Final intervention decisions remain with authorized faculty and mentors.
         </div>
+      </div>
+    </div>
+  );
+}
+
+function AddStudentModal({
+  studentId,
+  setStudentId,
+  name,
+  setName,
+  email,
+  setEmail,
+  course,
+  setCourse,
+  semester,
+  setSemester,
+  attendance,
+  setAttendance,
+  academic,
+  setAcademic,
+  submission,
+  setSubmission,
+  engagement,
+  setEngagement,
+  isSubmitting,
+  databaseMessage,
+  onClose,
+  onAdd,
+}: {
+  studentId: string;
+  setStudentId: (value: string) => void;
+  name: string;
+  setName: (value: string) => void;
+  email: string;
+  setEmail: (value: string) => void;
+  course: string;
+  setCourse: (value: string) => void;
+  semester: string;
+  setSemester: (value: string) => void;
+  attendance: number;
+  setAttendance: (value: number) => void;
+  academic: number;
+  setAcademic: (value: number) => void;
+  submission: number;
+  setSubmission: (value: number) => void;
+  engagement: number;
+  setEngagement: (value: number) => void;
+  isSubmitting: boolean;
+  databaseMessage: string | null;
+  onClose: () => void;
+  onAdd: () => void;
+}) {
+  const preview = calculateRisk(
+    attendance,
+    academic,
+    submission,
+    engagement
+  );
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-[#302a3a]/40 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-white shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="border-b border-[#e6dfeb] p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider text-[#8b78c9]">
+                Student Management
+              </p>
+
+              <h2 className="mt-1 font-serif text-3xl">
+                Add New Student
+              </h2>
+
+              <p className="mt-1 text-sm text-[#756d7d]">
+                Inserts directly into Supabase database with explainable demo signals.
+              </p>
+            </div>
+
+            <button
+              onClick={onClose}
+              className="text-2xl text-[#756d7d] hover:text-[#302a3a]"
+              aria-label="Close"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+
+        {databaseMessage && (
+          <div className="mx-6 mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-xs font-medium leading-relaxed text-red-700">
+            <p className="font-semibold">{databaseMessage}</p>
+            {databaseMessage.includes("row-level security") && (
+              <div className="mt-3 border-t border-red-200 pt-2 text-[11px] text-red-600">
+                <p className="font-bold">Required Supabase RLS Fix:</p>
+                <p className="mt-1 font-sans text-gray-700">Run this SQL in your Supabase SQL Editor to allow public insert:</p>
+                <code className="mt-1 block rounded border border-red-200 bg-white p-2 font-mono text-[10px] text-red-800 break-all">
+                  create policy &quot;Allow public insert for testing&quot; on public.students for insert to anon with check (true);
+                </code>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="space-y-6 p-6">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-2 block text-sm font-semibold">
+                Student ID <span className="text-red-500">*</span>
+              </label>
+              <input
+                value={studentId}
+                onChange={(event) => setStudentId(event.target.value)}
+                placeholder="e.g. STU004"
+                className="w-full rounded-xl border border-[#e6dfeb] bg-[#fcfaff] px-4 py-3 text-sm outline-none focus:border-[#8b78c9]"
+              />
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-semibold">
+                Student Name <span className="text-red-500">*</span>
+              </label>
+              <input
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                placeholder="e.g. Sanket"
+                className="w-full rounded-xl border border-[#e6dfeb] bg-[#fcfaff] px-4 py-3 text-sm outline-none focus:border-[#8b78c9]"
+              />
+            </div>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-2 block text-sm font-semibold">
+                Email Address
+              </label>
+              <input
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="e.g. test@example.com"
+                className="w-full rounded-xl border border-[#e6dfeb] bg-[#fcfaff] px-4 py-3 text-sm outline-none focus:border-[#8b78c9]"
+              />
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-semibold">
+                Course <span className="text-red-500">*</span>
+              </label>
+              <input
+                value={course}
+                onChange={(event) => setCourse(event.target.value)}
+                placeholder="e.g. BTECH CSE"
+                className="w-full rounded-xl border border-[#e6dfeb] bg-[#fcfaff] px-4 py-3 text-sm outline-none focus:border-[#8b78c9]"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-2 block text-sm font-semibold">
+              Semester <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="number"
+              min="1"
+              max="12"
+              value={semester}
+              onChange={(event) => setSemester(event.target.value)}
+              placeholder="e.g. 6"
+              className="w-full rounded-xl border border-[#e6dfeb] bg-[#fcfaff] px-4 py-3 text-sm outline-none focus:border-[#8b78c9]"
+            />
+            <p className="mt-1 text-xs text-[#756d7d]">
+              Enter the semester number (e.g. 6).
+            </p>
+          </div>
+
+          <div>
+            <div className="mb-4">
+              <h3 className="font-serif text-xl">
+                Initial Performance Signals
+              </h3>
+              <p className="mt-1 text-xs text-[#756d7d]">
+                Used to calculate the initial Demo Risk Score (Weights: 40% Attendance, 30% Academic, 20% Submissions, 10% Engagement).
+              </p>
+            </div>
+
+            <div className="grid gap-5 sm:grid-cols-2">
+              <SignalInput
+                label="Initial Attendance"
+                value={attendance}
+                setValue={setAttendance}
+              />
+
+              <SignalInput
+                label="Academic Performance"
+                value={academic}
+                setValue={setAcademic}
+              />
+
+              <SignalInput
+                label="Submission Timeliness"
+                value={submission}
+                setValue={setSubmission}
+              />
+
+              <SignalInput
+                label="Engagement Score"
+                value={engagement}
+                setValue={setEngagement}
+              />
+            </div>
+          </div>
+
+          <div className="rounded-2xl bg-[#eee9fa] p-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider text-[#6f5bad]">
+                  Predicted Initial Risk
+                </p>
+                <p className="mt-1 text-sm text-[#756d7d]">
+                  Calculated from the entered signals.
+                </p>
+              </div>
+
+              <RiskBadge risk={preview.risk} />
+            </div>
+
+            <div className="mt-4 flex items-end gap-2">
+              <span className="font-serif text-5xl text-[#6f5bad]">
+                {preview.score}
+              </span>
+              <span className="mb-1 text-sm text-[#756d7d]">/ 100</span>
+            </div>
+
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-white">
+              <div
+                className="h-full rounded-full bg-[#8b78c9]"
+                style={{
+                  width: `${preview.score}%`,
+                }}
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-3 border-t border-[#e6dfeb] p-6">
+          <button
+            onClick={onClose}
+            className="rounded-lg border border-[#e6dfeb] px-4 py-2.5 text-sm font-semibold hover:bg-gray-50"
+          >
+            Cancel
+          </button>
+
+          <button
+            onClick={onAdd}
+            disabled={
+              isSubmitting ||
+              !studentId.trim() ||
+              !name.trim() ||
+              !course.trim()
+            }
+            className="rounded-lg bg-[#8b78c9] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#6f5bad] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isSubmitting ? "Saving to Supabase..." : "Save Student"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SignalInput({
+  label,
+  value,
+  setValue,
+}: {
+  label: string;
+  value: number;
+  setValue: (value: number) => void;
+}) {
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between">
+        <label className="text-sm font-semibold">
+          {label}
+        </label>
+
+        <span className="rounded-full bg-[#eee9fa] px-2.5 py-1 text-xs font-bold text-[#6f5bad]">
+          {value}%
+        </span>
+      </div>
+
+      <input
+        type="range"
+        min="0"
+        max="100"
+        value={value}
+        onChange={(event) =>
+          setValue(Number(event.target.value))
+        }
+        className="w-full accent-[#8b78c9]"
+      />
+
+      <div className="mt-1 flex justify-between text-[10px] text-[#9a929f]">
+        <span>0%</span>
+        <span>50%</span>
+        <span>100%</span>
       </div>
     </div>
   );

@@ -24,6 +24,8 @@ export default function TestDatabase() {
       const { data, error } = await supabase
         .from('students')
         .select('*')
+        .not('student_id', 'ilike', 'TEST_%')
+        .order('id', { ascending: true })
 
       if (error) {
         setError(error.message)
