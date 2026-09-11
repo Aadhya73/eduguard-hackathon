@@ -42,8 +42,13 @@ app = Flask(__name__)
 
 # Configure CORS
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
-allowed_origins = [FRONTEND_URL, "http://localhost:3000", "http://127.0.0.1:3000"]
-CORS(app, origins=list(set(allowed_origins)))
+allowed_origins = ["http://localhost:3000", "http://127.0.0.1:3000"]
+if FRONTEND_URL:
+    for u in FRONTEND_URL.split(","):
+        cleaned = u.strip().rstrip("/")
+        if cleaned and cleaned not in allowed_origins:
+            allowed_origins.append(cleaned)
+CORS(app, origins=allowed_origins, supports_credentials=True)
 
 # Register Blueprints
 app.register_blueprint(students_bp)

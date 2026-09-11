@@ -3,8 +3,9 @@
  * Facilitates communication between Next.js Frontend and Flask Backend (:5000)
  */
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"
+).replace(/\/+$/, "");
 
 export interface StudentPayload {
   student_id: string;
