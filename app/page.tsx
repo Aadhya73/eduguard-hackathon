@@ -184,18 +184,18 @@ export default function Home() {
   const [interventionOwner, setInterventionOwner] = useState("Dr. Meera Gupta");
   const [interventionNotes, setInterventionNotes] = useState("");
 
-  // Add Student Form State
+  // Add Student Form State & Database Message
   const [newStudentId, setNewStudentId] = useState("");
   const [newStudentName, setNewStudentName] = useState("");
   const [newStudentEmail, setNewStudentEmail] = useState("");
   const [newStudentCourse, setNewStudentCourse] = useState("");
-  const [newStudentSemester, setNewStudentSemester] = useState("6th Semester");
+  const [newStudentSemester, setNewStudentSemester] = useState("6");
   const [newAttendance, setNewAttendance] = useState(85);
   const [newAcademic, setNewAcademic] = useState(80);
   const [newSubmission, setNewSubmission] = useState(80);
   const [newEngagement, setNewEngagement] = useState(80);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [databaseMessage, setDatabaseMessage] = useState<string | null>(null);
 
   // Fetch students from Supabase
   const loadStudents = useCallback(async () => {
@@ -239,7 +239,7 @@ export default function Home() {
             sub = 95;
             eng = 90;
           } else {
-            // Check if signals were configured in localStorage
+            // Check if custom signals were saved in localStorage
             try {
               if (typeof window !== "undefined") {
                 const stored = localStorage.getItem(`student_signals_${dbStudent.student_id}`);
@@ -271,7 +271,9 @@ export default function Home() {
           const semDisplay = dbStudent.semester
             ? typeof dbStudent.semester === "number"
               ? `${dbStudent.semester}th Semester`
-              : dbStudent.semester
+              : String(dbStudent.semester).includes("Semester")
+              ? dbStudent.semester
+              : `${dbStudent.semester}th Semester`
             : "1st Semester";
 
           return {
@@ -452,61 +454,60 @@ export default function Home() {
     setNewStudentName("");
     setNewStudentEmail("");
     setNewStudentCourse("");
-    setNewStudentSemester("6th Semester");
+    setNewStudentSemester("6");
     setNewAttendance(85);
     setNewAcademic(80);
     setNewSubmission(80);
     setNewEngagement(80);
-    setSubmitError(null);
+    setDatabaseMessage(null);
     setIsSubmitting(false);
   }
 
   async function addNewStudent() {
-    if (
-      !newStudentId.trim() ||
-      !newStudentName.trim() ||
-      !newStudentCourse.trim()
-    ) {
-      setSubmitError("Student ID, Name, and Course are required.");
+    // 1. Form Validation
+    if (!newStudentId.trim()) {
+      setDatabaseMessage("Could not save student: Student ID cannot be empty.");
+      return;
+    }
+    if (!newStudentName.trim()) {
+      setDatabaseMessage("Could not save student: Name cannot be empty.");
+      return;
+    }
+    if (!newStudentCourse.trim()) {
+      setDatabaseMessage("Could not save student: Course cannot be empty.");
+      return;
+    }
+    const semNumber = Number(newStudentSemester);
+    if (!newStudentSemester.trim() || isNaN(semNumber) || semNumber <= 0) {
+      setDatabaseMessage("Could not save student: Semester must be a valid number.");
       return;
     }
 
     setIsSubmitting(true);
-    setSubmitError(null);
-
-    const semNum =
-      parseInt(String(newStudentSemester).replace(/\D/g, ""), 10) || 1;
+    setDatabaseMessage(null);
 
     try {
       const supabase = createClient();
       const { data, error } = await supabase
         .from("students")
         .insert({
-          student_id: newStudentId.trim().toUpperCase(),
+          student_id: newStudentId.trim(),
           name: newStudentName.trim(),
           email: newStudentEmail.trim() || null,
           course: newStudentCourse.trim(),
-          semester: semNum,
+          semester: Number(newStudentSemester),
         })
         .select("id, student_id, name, email, course, semester")
         .single();
 
       if (error) {
-        console.error("Supabase insert error:", error);
-        if (error.code === "42501" || error.message.includes("row-level security")) {
-          setSubmitError(
-            "Supabase RLS Policy Error: Insert blocked by Row-Level Security. Please run 'supabase_setup.sql' in your Supabase SQL Editor to grant public insert permissions."
-          );
-        } else if (error.code === "23505") {
-          setSubmitError(`Student ID '${newStudentId.trim().toUpperCase()}' already exists in the database.`);
-        } else {
-          setSubmitError(error.message);
-        }
+        console.error("Add student error:", error);
+        setDatabaseMessage(`Could not save student: ${error.message}`);
         setIsSubmitting(false);
         return;
       }
 
-      // Save initial custom signals for this student
+      // Save signals for this student
       try {
         if (typeof window !== "undefined") {
           const signalsData = {
@@ -524,7 +525,7 @@ export default function Home() {
         console.warn("Could not save signals to localStorage:", e);
       }
 
-      // Refresh student list from Supabase
+      // Success: reload students from Supabase as the source of truth
       await loadStudents();
 
       setIsSubmitting(false);
@@ -532,7 +533,8 @@ export default function Home() {
       resetAddStudentForm();
       setActiveTab("Students");
     } catch (err: any) {
-      setSubmitError(err.message || "Failed to add student to database.");
+      console.error("Add student error:", err);
+      setDatabaseMessage(`Could not save student: ${err.message || "An unexpected error occurred"}`);
       setIsSubmitting(false);
     }
   }
@@ -611,7 +613,7 @@ export default function Home() {
       {dbError && (
         <div className="mx-auto mt-4 max-w-[1500px] px-6">
           <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-            <strong>Database Notice:</strong> {dbError}. Showing available local cache if available.
+            <strong>Database Notice:</strong> {dbError}. Showing cached data if available.
           </div>
         </div>
       )}
@@ -700,7 +702,7 @@ export default function Home() {
           engagement={newEngagement}
           setEngagement={setNewEngagement}
           isSubmitting={isSubmitting}
-          errorMessage={submitError}
+          databaseMessage={databaseMessage}
           onClose={() => {
             setShowAddStudentModal(false);
             resetAddStudentForm();
@@ -1770,7 +1772,7 @@ function AddStudentModal({
   engagement,
   setEngagement,
   isSubmitting,
-  errorMessage,
+  databaseMessage,
   onClose,
   onAdd,
 }: {
@@ -1793,7 +1795,7 @@ function AddStudentModal({
   engagement: number;
   setEngagement: (value: number) => void;
   isSubmitting: boolean;
-  errorMessage: string | null;
+  databaseMessage: string | null;
   onClose: () => void;
   onAdd: () => void;
 }) {
@@ -1839,9 +1841,18 @@ function AddStudentModal({
           </div>
         </div>
 
-        {errorMessage && (
-          <div className="m-6 rounded-xl border border-red-200 bg-red-50 p-4 text-xs leading-relaxed text-red-700">
-            <strong>Save Error:</strong> {errorMessage}
+        {databaseMessage && (
+          <div className="mx-6 mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-xs font-medium leading-relaxed text-red-700">
+            <p className="font-semibold">{databaseMessage}</p>
+            {databaseMessage.includes("row-level security") && (
+              <div className="mt-3 border-t border-red-200 pt-2 text-[11px] text-red-600">
+                <p className="font-bold">Required Supabase RLS Fix:</p>
+                <p className="mt-1 font-sans text-gray-700">Run this SQL in your Supabase SQL Editor to allow public insert:</p>
+                <code className="mt-1 block rounded border border-red-200 bg-white p-2 font-mono text-[10px] text-red-800 break-all">
+                  create policy &quot;Allow public insert for testing&quot; on public.students for insert to anon with check (true);
+                </code>
+              </div>
+            )}
           </div>
         )}
 
@@ -1901,22 +1912,20 @@ function AddStudentModal({
 
           <div>
             <label className="mb-2 block text-sm font-semibold">
-              Semester
+              Semester <span className="text-red-500">*</span>
             </label>
-            <select
+            <input
+              type="number"
+              min="1"
+              max="12"
               value={semester}
               onChange={(event) => setSemester(event.target.value)}
-              className="w-full rounded-xl border border-[#e6dfeb] bg-white px-4 py-3 text-sm outline-none focus:border-[#8b78c9]"
-            >
-              <option>1st Semester</option>
-              <option>2nd Semester</option>
-              <option>3rd Semester</option>
-              <option>4th Semester</option>
-              <option>5th Semester</option>
-              <option>6th Semester</option>
-              <option>7th Semester</option>
-              <option>8th Semester</option>
-            </select>
+              placeholder="e.g. 6"
+              className="w-full rounded-xl border border-[#e6dfeb] bg-[#fcfaff] px-4 py-3 text-sm outline-none focus:border-[#8b78c9]"
+            />
+            <p className="mt-1 text-xs text-[#756d7d]">
+              Enter the semester number (e.g. 6).
+            </p>
           </div>
 
           <div>

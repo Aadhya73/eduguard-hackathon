@@ -4,22 +4,30 @@
 -- ================================================================
 
 -- 1. Enable RLS on students and grant read/write access for anon/demo
-ALTER TABLE students ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.students ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS "Allow public read students" ON students;
-CREATE POLICY "Allow public read students" ON students
-FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Allow public read for testing" ON public.students;
+CREATE POLICY "Allow public read for testing" ON public.students
+FOR SELECT TO anon USING (true);
 
-DROP POLICY IF EXISTS "Allow anon insert students" ON students;
-CREATE POLICY "Allow anon insert students" ON students
+DROP POLICY IF EXISTS "Allow public insert for testing" ON public.students;
+CREATE POLICY "Allow public insert for testing" ON public.students
 FOR INSERT TO anon WITH CHECK (true);
 
-DROP POLICY IF EXISTS "Allow anon update students" ON students;
-CREATE POLICY "Allow anon update students" ON students
+DROP POLICY IF EXISTS "Allow public read students" ON public.students;
+CREATE POLICY "Allow public read students" ON public.students
+FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Allow anon insert students" ON public.students;
+CREATE POLICY "Allow anon insert students" ON public.students
+FOR INSERT TO anon WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow anon update students" ON public.students;
+CREATE POLICY "Allow anon update students" ON public.students
 FOR UPDATE TO anon USING (true);
 
-DROP POLICY IF EXISTS "Allow anon delete students" ON students;
-CREATE POLICY "Allow anon delete students" ON students
+DROP POLICY IF EXISTS "Allow anon delete students" ON public.students;
+CREATE POLICY "Allow anon delete students" ON public.students
 FOR DELETE TO anon USING (true);
 
 -- 2. Attendance Policies
@@ -71,3 +79,4 @@ DROP POLICY IF EXISTS "Allow public read risk_scores" ON risk_scores;
 CREATE POLICY "Allow public read risk_scores" ON risk_scores FOR SELECT USING (true);
 DROP POLICY IF EXISTS "Allow anon insert risk_scores" ON risk_scores;
 CREATE POLICY "Allow anon insert risk_scores" ON risk_scores FOR INSERT TO anon WITH CHECK (true);
+
