@@ -45,3 +45,10 @@ backend/.env.*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+venv/
+.venv/
