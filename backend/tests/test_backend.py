@@ -20,13 +20,14 @@ def client():
 
 
 def test_health_endpoint(client):
-    """Test /health endpoint."""
-    res = client.get("/health")
-    assert res.status_code == 200
-    data = res.get_json()
-    assert data["status"] in ["healthy", "degraded"]
-    assert "models" in data
-    assert "supabase_connected" in data
+    """Test /health and /api/health endpoints."""
+    for path in ["/health", "/api/health"]:
+        res = client.get(path)
+        assert res.status_code == 200
+        data = res.get_json()
+        assert data["status"] in ["healthy", "degraded"]
+        assert "models" in data
+        assert "supabase_connected" in data
 
 
 def test_get_students(client):

@@ -81,6 +81,8 @@ export async function getStudentById(studentId: string) {
   return await request<{ success: boolean; student: any }>(`/api/students/${encodeURIComponent(studentId)}`);
 }
 
+export const getStudent = getStudentById;
+
 export async function deleteStudent(studentId: string) {
   return await request<{ success: boolean; message: string }>(`/api/students/${encodeURIComponent(studentId)}`, {
     method: "DELETE",
@@ -181,6 +183,19 @@ export async function getSubmissions(studentId: string) {
     total_assignments: number;
     submitted_assignments: number;
   }>(`/api/students/${encodeURIComponent(studentId)}/submissions`);
+}
+
+export async function addSubmission(
+  studentId: string,
+  data: { assignment_id: number; status?: string }
+) {
+  return await request<{ success: boolean; record: any }>(
+    `/api/students/${encodeURIComponent(studentId)}/submissions`,
+    {
+      method: "POST",
+      body: JSON.stringify(data),
+    }
+  );
 }
 
 // 7. Engagement Operations
