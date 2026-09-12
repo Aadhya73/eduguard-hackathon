@@ -1,36 +1,71 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# EduGuard — Early Student Dropout Warning System
 
-## Getting Started
+> An explainable, data-driven early warning system designed to help educators identify students who may be at risk of dropping out and take supportive action at an early stage.
 
-First, run the development server:
+---
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## 📌 Overview
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+EduGuard is an **Early Student Dropout Warning System** that analyzes multiple student performance and engagement indicators to identify students who may require additional academic or mentoring support.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+The system focuses on four key indicators:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- 📊 Attendance
+- 📚 Academic Performance
+- 📝 Assignment Submission Behavior
+- 👥 Student Engagement
 
-## Learn More
+These indicators are processed through an explainable risk-scoring system and classified into:
 
-To learn more about Next.js, take a look at the following resources:
+- 🟢 Low Risk
+- 🟡 Medium Risk
+- 🔴 High Risk
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+The resulting information is presented through an educator-focused dashboard where users can search and filter students, understand the factors contributing to risk, and take supportive interventions.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+---
 
-## Deploy on Vercel
+## 🎯 Problem Statement
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Student dropout is often identified only after the student has already disengaged significantly.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+EduGuard aims to shift the approach from:
+
+**Reactive Support → Proactive Support**
+
+Instead of waiting until a student drops out, the system identifies early warning signals and helps educators decide where intervention may be appropriate.
+
+---
+
+## 💡 Solution
+
+EduGuard provides a centralized dashboard that allows educators or administrators to:
+
+1. View overall student risk statistics.
+2. Search and filter students.
+3. Identify students requiring attention.
+4. View individual student risk details.
+5. Understand the factors contributing to the risk score.
+6. Receive supportive recommendations.
+7. Manage intervention-related actions.
+
+### High-Level Workflow
+
+```text
+Student Data
+     ↓
+Supabase Database
+     ↓
+Flask REST API
+     ↓
+Risk Analysis
+     ↓
+Low / Medium / High Risk
+     ↓
+Warning Flags + Explanation
+     ↓
+Educator Dashboard
+     ↓
+Supportive Intervention
+     ↓
+Monitor Student Progress
