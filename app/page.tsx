@@ -2,14 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import {
-  getStudents,
-  createStudent,
-  getStudentRisk,
-  getDashboard,
-  type DashboardMetrics,
-  type StudentRiskResponse,
-} from "@/lib/api";
 
 export type RiskLevel = "High" | "Medium" | "Low";
 
@@ -204,57 +196,28 @@ export default function Home() {
   const [newEngagement, setNewEngagement] = useState(80);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [databaseMessage, setDatabaseMessage] = useState<string | null>(null);
-  const [backendStats, setBackendStats] = useState<DashboardMetrics | null>(null);
 
-  // Fetch students from Flask Backend (or fallback to Supabase directly)
+  // Fetch students from Supabase
   const loadStudents = useCallback(async () => {
     setLoading(true);
     setDbError(null);
     try {
-      let rawData: any[] = [];
-      let backendFailed = false;
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("students")
+        .select("id, student_id, name, email, course, semester")
+        .not("student_id", "ilike", "TEST_%")
+        .order("id", { ascending: true });
 
-      // 1. Try Flask Backend REST API first (PART 17)
-      try {
-        const apiStudents = await getStudents();
-        if (Array.isArray(apiStudents) && apiStudents.length > 0) {
-          rawData = apiStudents;
-        } else {
-          backendFailed = true;
-        }
-      } catch (backendError) {
-        console.warn("Backend API getStudents note, using direct Supabase fallback:", backendError);
-        backendFailed = true;
+      if (error) {
+        console.error("Supabase students query error:", error);
+        setDbError(error.message);
+        setLoading(false);
+        return;
       }
 
-      // 2. Fallback to direct Supabase client if backend didn't return rows
-      if (backendFailed) {
-        const supabase = createClient();
-        const { data, error } = await supabase
-          .from("students")
-          .select("id, student_id, name, email, course, semester")
-          .not("student_id", "ilike", "TEST_%")
-          .order("id", { ascending: true });
-
-        if (error) {
-          console.error("Supabase students query error:", error);
-          setDbError(error.message);
-          setLoading(false);
-          return;
-        }
-        rawData = data || [];
-      }
-
-      // Also try to load backend dashboard metrics
-      try {
-        const d = await getDashboard();
-        if (d) setBackendStats(d);
-      } catch (e) {
-        console.warn("Dashboard API fetch note:", e);
-      }
-
-      if (rawData) {
-        const mappedStudents: Student[] = rawData.map((dbStudent) => {
+      if (data) {
+        const mappedStudents: Student[] = data.map((dbStudent) => {
           let att = 80;
           let acad = 80;
           let sub = 80;
@@ -363,8 +326,8 @@ export default function Home() {
         setStudents(mappedStudents);
       }
     } catch (err: any) {
-      console.error("Failed to load students:", err);
-      setDbError(err.message || "Failed to load students");
+      console.error("Failed to connect to Supabase:", err);
+      setDbError(err.message || "Failed to connect to Supabase");
     } finally {
       setLoading(false);
     }
@@ -376,13 +339,11 @@ export default function Home() {
 
   const stats = useMemo(
     () => ({
-      total: backendStats ? backendStats.total_students : students.length,
-      high: backendStats ? backendStats.high_risk : students.filter((student) => student.risk === "High").length,
-      medium: backendStats ? backendStats.medium_risk : students.filter((student) => student.risk === "Medium").length,
-      low: backendStats ? backendStats.low_risk : students.filter((student) => student.risk === "Low").length,
-      avgAttendance: backendStats
-        ? backendStats.average_attendance
-        : students.length
+      total: students.length,
+      high: students.filter((student) => student.risk === "High").length,
+      medium: students.filter((student) => student.risk === "Medium").length,
+      low: students.filter((student) => student.risk === "Low").length,
+      avgAttendance: students.length
         ? Math.round(
             students.reduce((acc, s) => {
               const att = s.signals.find((sig) => sig.name === "Attendance")?.value || 0;
@@ -390,16 +351,14 @@ export default function Home() {
             }, 0) / students.length
           )
         : 0,
-      activeInterventions: backendStats
-        ? backendStats.active_interventions
-        : interventions.filter(
-            (item) => item.status === "Planned" || item.status === "In Progress"
-          ).length,
+      activeInterventions: interventions.filter(
+        (item) => item.status === "Planned" || item.status === "In Progress"
+      ).length,
       completedInterventions: interventions.filter(
         (item) => item.status === "Completed"
       ).length,
     }),
-    [students, interventions, backendStats]
+    [students, interventions]
   );
 
   const filteredStudents = useMemo(() => {
@@ -529,74 +488,39 @@ export default function Home() {
     setDatabaseMessage(null);
 
     try {
-      let createdStudentId = newStudentId.trim();
-      let success = false;
+      const supabase = createClient();
 
-      // 1. Try Flask Backend REST API first
-      try {
-        const res = await createStudent({
+      const { data, error } = await supabase
+        .from("students")
+        .insert({
           student_id: newStudentId.trim(),
           name: newStudentName.trim(),
           email: newStudentEmail.trim() || null,
           course: newStudentCourse.trim(),
           semester: parsedSemester,
-        });
-        if (res && res.student) {
-          createdStudentId = res.student.student_id;
-          success = true;
-        }
-      } catch (backendErr: any) {
-        console.warn("Backend add student note:", backendErr);
+        })
+        .select("id, student_id, name, email, course, semester")
+        .single();
+
+      if (error) {
+        console.error("Add student error:", error);
         if (
-          backendErr.status === 409 ||
-          (backendErr.message && backendErr.message.toLowerCase().includes("already exists"))
+          error.code === "23505" ||
+          error.message.includes("unique constraint") ||
+          error.message.includes("duplicate key")
         ) {
-          setDatabaseMessage(
-            "Could not save student: Student ID already exists. Please choose a different Student ID."
-          );
-          setIsSubmitting(false);
-          return;
+          setDatabaseMessage("Could not save student: Student ID already exists. Please choose a different Student ID.");
+        } else {
+          setDatabaseMessage(`Could not save student: ${error.message}`);
         }
-        // If not a conflict error (e.g. backend server is down), continue to Supabase fallback
+        setIsSubmitting(false);
+        return;
       }
 
-      // 2. Direct Supabase Fallback if Backend did not complete
-      if (!success) {
-        const supabase = createClient();
-
-        const { data, error } = await supabase
-          .from("students")
-          .insert({
-            student_id: newStudentId.trim(),
-            name: newStudentName.trim(),
-            email: newStudentEmail.trim() || null,
-            course: newStudentCourse.trim(),
-            semester: parsedSemester,
-          })
-          .select("id, student_id, name, email, course, semester")
-          .single();
-
-        if (error) {
-          console.error("Add student error:", error);
-          if (
-            error.code === "23505" ||
-            error.message.includes("unique constraint") ||
-            error.message.includes("duplicate key")
-          ) {
-            setDatabaseMessage("Could not save student: Student ID already exists. Please choose a different Student ID.");
-          } else {
-            setDatabaseMessage(`Could not save student: ${error.message}`);
-          }
-          setIsSubmitting(false);
-          return;
-        }
-
-        if (!data) {
-          setDatabaseMessage("Could not save student: Student was not returned by Supabase.");
-          setIsSubmitting(false);
-          return;
-        }
-        createdStudentId = data.student_id;
+      if (!data) {
+        setDatabaseMessage("Could not save student: Student was not returned by Supabase.");
+        setIsSubmitting(false);
+        return;
       }
 
       // Save signals for this student
@@ -609,7 +533,7 @@ export default function Home() {
             engagement: newEngagement,
           };
           localStorage.setItem(
-            `student_signals_${createdStudentId}`,
+            `student_signals_${data.student_id}`,
             JSON.stringify(signalsData)
           );
         }
@@ -627,7 +551,6 @@ export default function Home() {
     } catch (err: any) {
       console.error("Add student error:", err);
       setDatabaseMessage(`Could not save student: ${err.message || "An unexpected error occurred"}`);
-    } finally {
       setIsSubmitting(false);
     }
   };
@@ -1672,34 +1595,6 @@ function StudentDetail({
   onClose: () => void;
   onCreateIntervention: () => void;
 }) {
-  const [liveRisk, setLiveRisk] = useState<StudentRiskResponse | null>(null);
-
-  useEffect(() => {
-    let isMounted = true;
-    getStudentRisk(student.student_id)
-      .then((res) => {
-        if (isMounted && res && res.risk_score !== undefined) {
-          setLiveRisk(res);
-        }
-      })
-      .catch((err) => {
-        console.warn("Backend risk note for student detail:", err);
-      });
-    return () => {
-      isMounted = false;
-    };
-  }, [student.student_id]);
-
-  const displayScore = liveRisk ? liveRisk.risk_score : student.riskScore;
-  const displayRisk = liveRisk ? liveRisk.risk_level : student.risk;
-  const displayFlags =
-    liveRisk && liveRisk.flags && liveRisk.flags.length > 0
-      ? liveRisk.flags
-      : student.flags;
-  const displayRecommendation = liveRisk
-    ? liveRisk.recommendation
-    : student.intervention;
-
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-[#302a3a]/30 p-4 backdrop-blur-sm"
@@ -1726,13 +1621,7 @@ function StudentDetail({
                     {student.student_id}
                   </span>
 
-                  <RiskBadge risk={displayRisk} />
-
-                  {liveRisk && (
-                    <span className="rounded bg-[#e5f4ed] px-2 py-0.5 text-[10px] font-bold text-[#478567]">
-                      ● Live Risk API
-                    </span>
-                  )}
+                  <RiskBadge risk={student.risk} />
                 </div>
 
                 <p className="mt-1 text-sm text-[#756d7d]">
@@ -1762,74 +1651,50 @@ function StudentDetail({
             </p>
 
             <div className="mt-5 space-y-4">
-              {student.signals.map((signal) => {
-                const signalVal =
-                  liveRisk?.signals &&
-                  (signal.name === "Attendance"
-                    ? liveRisk.signals.attendance
-                    : signal.name === "Academic Performance"
-                    ? liveRisk.signals.academic
-                    : signal.name === "Submission Timeliness"
-                    ? liveRisk.signals.submission
-                    : signal.name === "Engagement"
-                    ? liveRisk.signals.engagement
-                    : signal.value) !== undefined
-                    ? (signal.name === "Attendance"
-                        ? liveRisk.signals.attendance
-                        : signal.name === "Academic Performance"
-                        ? liveRisk.signals.academic
-                        : signal.name === "Submission Timeliness"
-                        ? liveRisk.signals.submission
-                        : signal.name === "Engagement"
-                        ? liveRisk.signals.engagement
-                        : signal.value)
-                    : signal.value;
+              {student.signals.map((signal) => (
+                <div
+                  key={signal.name}
+                  className="rounded-2xl border border-[#e6dfeb] p-4"
+                >
+                  <div className="mb-3 flex justify-between">
+                    <span className="text-sm font-semibold">
+                      {signal.name}
+                    </span>
 
-                return (
-                  <div
-                    key={signal.name}
-                    className="rounded-2xl border border-[#e6dfeb] p-4"
-                  >
-                    <div className="mb-3 flex justify-between">
-                      <span className="text-sm font-semibold">
-                        {signal.name}
-                      </span>
-
-                      <span className="font-semibold">
-                        {signalVal}%
-                      </span>
-                    </div>
-
-                    <div className="h-2 overflow-hidden rounded-full bg-[#eeeaf1]">
-                      <div
-                        className="h-full rounded-full bg-[#8b78c9]"
-                        style={{
-                          width: `${signalVal}%`,
-                        }}
-                      />
-                    </div>
-
-                    <div className="mt-2 flex justify-between text-xs">
-                      <span className="text-[#756d7d]">
-                        Recent trajectory
-                      </span>
-
-                      <span
-                        className={
-                          signal.change < 0
-                            ? "font-semibold text-[#d96b7b]"
-                            : signal.change > 0
-                            ? "font-semibold text-[#65a985]"
-                            : "text-[#756d7d]"
-                        }
-                      >
-                        {signal.change > 0 ? "+" : ""}
-                        {signal.change}%
-                      </span>
-                    </div>
+                    <span className="font-semibold">
+                      {signal.value}%
+                    </span>
                   </div>
-                );
-              })}
+
+                  <div className="h-2 overflow-hidden rounded-full bg-[#eeeaf1]">
+                    <div
+                      className="h-full rounded-full bg-[#8b78c9]"
+                      style={{
+                        width: `${signal.value}%`,
+                      }}
+                    />
+                  </div>
+
+                  <div className="mt-2 flex justify-between text-xs">
+                    <span className="text-[#756d7d]">
+                      Recent trajectory
+                    </span>
+
+                    <span
+                      className={
+                        signal.change < 0
+                          ? "font-semibold text-[#d96b7b]"
+                          : signal.change > 0
+                          ? "font-semibold text-[#65a985]"
+                          : "text-[#756d7d]"
+                      }
+                    >
+                      {signal.change > 0 ? "+" : ""}
+                      {signal.change}%
+                    </span>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
 
@@ -1841,7 +1706,7 @@ function StudentDetail({
 
               <div className="mt-3 flex items-end gap-2">
                 <span className="font-serif text-6xl text-[#6f5bad]">
-                  {displayScore}
+                  {student.riskScore}
                 </span>
 
                 <span className="mb-2 text-lg text-[#756d7d]">
@@ -1853,7 +1718,7 @@ function StudentDetail({
                 <div
                   className="h-full rounded-full bg-[#8b78c9]"
                   style={{
-                    width: `${displayScore}%`,
+                    width: `${student.riskScore}%`,
                   }}
                 />
               </div>
@@ -1869,7 +1734,7 @@ function StudentDetail({
               </h3>
 
               <div className="mt-4 space-y-3">
-                {displayFlags.map((flag) => (
+                {student.flags.map((flag) => (
                   <div
                     key={flag}
                     className="flex gap-3 rounded-xl bg-[#faedf3] p-3 text-sm leading-5 text-[#6f5360]"
@@ -1887,7 +1752,7 @@ function StudentDetail({
               </p>
 
               <p className="mt-2 text-sm leading-6 text-[#426555]">
-                {displayRecommendation}
+                {student.intervention}
               </p>
 
               <button

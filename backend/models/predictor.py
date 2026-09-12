@@ -42,20 +42,11 @@ class DropoutPredictor:
         else:
             self.feature_importance = None
 
-    def _patch_monotonic_cst(self):
-        """Ensure estimators have monotonic_cst attribute for scikit-learn >= 1.4 compatibility"""
-        if hasattr(self.model, 'estimators_'):
-            for est in self.model.estimators_:
-                if not hasattr(est, 'monotonic_cst'):
-                    setattr(est, 'monotonic_cst', None)
-
     def predict(self, X):
-        self._patch_monotonic_cst()
         return self.model.predict(X)
 
     def predict_proba(self, X):
         """Predict dropout probability (returns probability of positive class only)"""
-        self._patch_monotonic_cst()
         if hasattr(self.model, "predict_proba"):
             return self.model.predict_proba(X)[:, 1]
         return None
